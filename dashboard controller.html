@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Therapist Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 20px; background: #f0f2f5; color: #111; }
+  
+  /* Header Container per allineare Titolo e Logout */
+  .header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  h1 { margin: 0; }
+  
+  .data-table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+  .data-table th, .data-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
+  .data-table th { background: #f8fafc; font-weight: 600; text-transform: uppercase; font-size: 0.85rem; color: #64748b; }
+  .data-table tr:hover { background: #f1f5f9; }
+  
+  .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; }
+  .badge-blue { background: #e0f2fe; color: #0369a1; }
+  
+  #loginOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 99; display: flex; justify-content: center; align-items: center; color: white; flex-direction: column; gap: 10px; }
+  
+  button { cursor: pointer; }
+  .btn-details { background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 4px 10px; font-size: 0.85rem; }
+  .btn-details:hover { background: #eee; }
+
+  /* Logout Button Style */
+  #btnLogout { background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: bold; display: none; /* Nascosto finché non loggati */ }
+  #btnLogout:hover { background: #dc2626; }
+
+  /* Modal Styles */
+  #detailModal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:100; justify-content:center; align-items:center; }
+  .modal-content { background:#fff; width:90%; max-width:800px; max-height:90vh; border-radius:8px; padding:20px; overflow-y:auto; position:relative; }
+  .close-btn { position:absolute; top:15px; right:20px; font-size:1.5rem; cursor:pointer; font-weight:bold; }
+  .section-title { font-size:1.1rem; font-weight:bold; margin-top:20px; margin-bottom:10px; padding-bottom:5px; border-bottom:2px solid #eee; }
+  
+  .log-table { width:100%; font-size:0.9rem; border-collapse:collapse; margin-top:10px; }
+  .log-table th, .log-table td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+  .log-table th { background:#f9f9f9; }
+</style>
+</head>
+<body>
+
+<div id="loginOverlay">
+  <h2>Admin Access Only</h2>
+  <div style="display:flex; flex-direction:column; gap:10px; width:300px;">
+    <input type="text" id="admUser" placeholder="Admin Code Name" style="padding:10px; border-radius:5px; border:none;">
+    <input type="password" id="admPass" placeholder="Password" style="padding:10px; border-radius:5px; border:none;">
+    <button id="btnLogin" style="padding:10px; cursor:pointer; background:#2563eb; color:white; border:none; border-radius:5px;">Enter Dashboard</button>
+  </div>
+  <p id="msg" style="color:#ff5555; margin-top:10px; text-align:center;"></p>
+</div>
+
+<div class="header-container">
+  <h1>📊 Patient Performance Overview</h1>
+  <button id="btnLogout">Logout</button>
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Patient Name</th>
+      <th>Total Games</th>
+      <th>Avg Numbers</th>
+      <th>Avg Words</th>
+      <th>Last Active</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody id="tableBody">
+    <tr><td colspan="6">Waiting for login...</td></tr>
+  </tbody>
+</table>
+
+<div id="detailModal">
+  <div class="modal-content">
+    <div class="close-btn" id="closeModal">&times;</div>
+    <h2 id="modalTitle">Patient Details</h2>
+    
+    <div class="section-title">Performance by Level</div>
+    <div id="breakdownContainer"></div>
+
+    <div class="section-title">Full Game History</div>
+    <table class="log-table">
+      <thead><tr><th>Date</th><th>Category</th><th>Level</th><th>Score</th></tr></thead>
+      <tbody id="logBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  // Aggiunto 'signOut' agli import
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+  import { getDatabase, ref, onValue, off } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAdflKP3Ot18R0NsxzOnN7HRQb5dCBpijo",
+    authDomain: "meta-80275.firebaseapp.com",
+    databaseURL: "https://meta-80275-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "meta-80275",
+    storageBucket: "meta-80275.firebasestorage.app",
+    messagingSenderId: "530974365258",
+    appId: "1:530974365258:web:aab2bcb076fb3f9a0f38b3"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getDatabase(app);
+  let usersRef = null; // Riferimento per staccare il listener al logout
+
+  // Login
+  document.getElementById('btnLogin').addEventListener('click', () => {
+    const u = document.getElementById('admUser').value;
+    const p = document.getElementById('admPass').value;
+    const email = u.replace(/\s+/g, '').toLowerCase() + "@memory.game";
+    signInWithEmailAndPassword(auth, email, p).catch(e => document.getElementById('msg').textContent = e.message);
+  });
+
+  // Logout Logic
+  document.getElementById('btnLogout').addEventListener('click', () => {
+    signOut(auth).then(() => {
+      console.log("Logged out");
+      // Il resto è gestito da onAuthStateChanged
+    }).catch((error) => {
+      console.error("Logout error", error);
+    });
+  });
+
+  // State Listener (Gestisce sia Login che Logout)
+  onAuthStateChanged(auth, (user) => {
+    const overlay = document.getElementById('loginOverlay');
+    const btnLogout = document.getElementById('btnLogout');
+    const tableBody = document.getElementById('tableBody');
+
+    if(user) {
+      // UTENTE LOGGATO
+      overlay.style.display = 'none';
+      btnLogout.style.display = 'block';
+      loadAllUsers();
+    } else {
+      // UTENTE DISCONNESSO
+      overlay.style.display = 'flex';
+      btnLogout.style.display = 'none';
+      tableBody.innerHTML = '<tr><td colspan="6">Waiting for login...</td></tr>';
+      document.getElementById('admPass').value = ''; // Pulisce password per sicurezza
+      
+      // Smetti di ascoltare il database se eravamo connessi (risparmia risorse e errori)
+      if(usersRef) off(usersRef);
+    }
+  });
+
+  function loadAllUsers() {
+    usersRef = ref(db, 'users');
+    
+    onValue(usersRef, (snapshot) => {
+      const data = snapshot.val();
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = ''; 
+
+      if (!data) { tbody.innerHTML = '<tr><td colspan="6">No users found.</td></tr>'; return; }
+
+      Object.keys(data).forEach(uid => {
+        const userData = data[uid];
+        const profile = userData.profile || {};
+        const realName = profile.name || "Unknown (" + uid.substring(0,5) + ")";
+        
+        const history = userData.history || {};
+        const games = Object.values(history);
+        const totalGames = games.length;
+
+        const numGames = games.filter(g => g.category === 'numbers');
+        const wordGames = games.filter(g => g.category === 'words');
+        
+        const avgNum = numGames.length ? (numGames.reduce((a,b)=>a+(parseInt(b.score)||0),0)/numGames.length).toFixed(1) : '-';
+        const avgWord = wordGames.length ? (wordGames.reduce((a,b)=>a+(parseInt(b.score)||0),0)/wordGames.length).toFixed(1) : '-';
+
+        games.sort((a,b) => new Date(b.date) - new Date(a.date));
+        const lastPlayed = totalGames ? new Date(games[0].date).toLocaleDateString() : '-';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${realName}</strong></td>
+          <td><span class="badge badge-blue">${totalGames}</span></td>
+          <td>${avgNum}</td>
+          <td>${avgWord}</td>
+          <td>${lastPlayed}</td>
+          <td><button class="btn-details" data-uid="${uid}">Details</button></td>
+        `;
+        tbody.appendChild(tr);
+        
+        tr.querySelector('.btn-details').addEventListener('click', () => showDetails(realName, games));
+      });
+    }, (error) => {
+      console.error(error);
+      if(auth.currentUser) {
+         prompt("ACCESS DENIED! Add this UID to rules:", auth.currentUser.uid);
+      }
+    });
+  }
+
+  // --- MODAL LOGIC ---
+  const modal = document.getElementById('detailModal');
+  document.getElementById('closeModal').addEventListener('click', () => modal.style.display='none');
+  
+  function showDetails(name, games) {
+    document.getElementById('modalTitle').textContent = `Report: ${name}`;
+    
+    const groups = {};
+    games.forEach(g => {
+      const key = `${g.category} (${g.type})`;
+      if(!groups[key]) groups[key] = { sum:0, count:0, max:0 };
+      const s = parseInt(g.score)||0;
+      groups[key].sum += s;
+      groups[key].count++;
+      if(s > groups[key].max) groups[key].max = s;
+    });
+
+    let breakdownHtml = '<div style="display:flex; gap:10px; flex-wrap:wrap;">';
+    for(let key in groups) {
+      const avg = (groups[key].sum / groups[key].count).toFixed(1);
+      breakdownHtml += `
+        <div style="background:#f9fafb; padding:10px; border-radius:6px; border:1px solid #eee; min-width:140px;">
+          <div style="font-weight:bold; font-size:0.9rem; margin-bottom:4px; text-transform:capitalize;">${key}</div>
+          <div style="color:#666; font-size:0.85rem;">Avg: <strong>${avg}</strong></div>
+          <div style="color:#666; font-size:0.85rem;">Best: <strong>${groups[key].max}</strong></div>
+          <div style="color:#999; font-size:0.75rem;">(${groups[key].count} games)</div>
+        </div>
+      `;
+    }
+    breakdownHtml += '</div>';
+    document.getElementById('breakdownContainer').innerHTML = breakdownHtml;
+
+    const logBody = document.getElementById('logBody');
+    logBody.innerHTML = '';
+    games.forEach(g => {
+       const row = document.createElement('tr');
+       row.innerHTML = `
+         <td>${new Date(g.date).toLocaleString()}</td>
+         <td style="text-transform:capitalize">${g.category}</td>
+         <td style="text-transform:capitalize">${g.type}</td>
+         <td><strong>${g.score}</strong></td>
+       `;
+       logBody.appendChild(row);
+    });
+
+    modal.style.display = 'flex';
+  }
+</script>
+</body>
+</html>
