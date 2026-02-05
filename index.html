@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Memory Game — Patient App</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root { --gap: 12px; --btn-size: auto; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin: 0; padding: 18px; background: #f7f7f7; color: #111; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  h1 { font-size:1.2rem; margin:0; }
+  #menu, #game, #result { margin-top:18px; }
+  .controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+
+  /* Login Overlay Style */
+  #authOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:#111; z-index:9999; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#fff; }
+  
+  #playArea {
+    margin-top:16px; width:100%; max-width:900px; height:62vh; min-height:380px;
+    background: #fff; border-radius:10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    position:relative; overflow:hidden; padding:12px;
+  }
+  .item {
+    position:absolute; user-select:none; cursor:pointer; padding:8px 12px;
+    border-radius:8px; background: #eef2ff; border:1px solid rgba(16,24,40,0.06);
+    font-weight:600; box-shadow: 0 1px 4px rgba(2,6,23,0.06); white-space:nowrap;
+    transform: translateZ(0);
+  }
+  @media (max-width:480px){
+    #playArea { height:58vh; min-height:320px; padding:10px; }
+    .item { padding:6px 10px; font-size:0.95rem; }
+  }
+  .hint { margin-top:10px; color:#555; font-size:0.95rem; }
+  button, select, input { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid #d9d9d9; background:#fff; }
+  .primary { background:#2563eb; color:#fff; border-color:transparent; }
+  .small { padding:6px 8px; font-size:0.95rem; }
+  
+  .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; }
+  .status-online { background: #dcfce7; color: #166534; }
+  
+  .chart-wrapper { background: #fff; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+  .chart-controls { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:10px; }
+  .chart-container { height: 250px; }
+  .stat-box { font-size:0.9rem; color:#666; }
+  .stat-val { font-weight:bold; color:#111; font-size:1.1rem; margin-left:5px; }
+</style>
+</head>
+<body>
+
+<div id="authOverlay">
+  <h2>Memory Game Login</h2>
+  <div style="display:flex; flex-direction:column; gap:10px; width:300px;">
+    <input type="text" id="username" placeholder="Code Name (e.g. CaptainNemo)" style="border:none;">
+    <input type="password" id="password" placeholder="Secret Password" style="border:none;">
+    <button id="btnLogin" class="primary" style="margin-top:10px; cursor:pointer;">Login</button>
+    <button id="btnRegister" style="background:#444; color:#fff; border:none; cursor:pointer;">New User? Register here</button>
+  </div>
+  <p id="authMsg" style="color:#ff5555; margin-top:15px; font-size:0.9rem; text-align:center;"></p>
+</div>
+
+<header>
+  <h1>Memory Game</h1>
+  <div id="connectionStatus" class="status-badge" style="background:#eee">Offline</div>
+</header>
+
+<div id="menu">
+  
+  <div class="chart-wrapper">
+    <div class="chart-controls">
+      <div>
+        <select id="chartFilter" style="font-size:0.9rem; padding:4px 8px;">
+          <option value="all">All Activities</option>
+          <optgroup label="Numbers">
+            <option value="numbers_all">Numbers (All)</option>
+            <option value="numbers_99">Numbers 1-99</option>
+            <option value="numbers_999">Numbers 1-999</option>
+            <option value="numbers_9999">Numbers 1-9999</option>
+          </optgroup>
+          <optgroup label="Words">
+            <option value="words_all">Words (All)</option>
+            <option value="words_bisyllabic">Words (Bisyllabic)</option>
+            <option value="words_trisyllabic">Words (Trisyllabic)</option>
+            <option value="words_tetrasyllabic">Words (Tetrasyllabic)</option>
+            <option value="words_pentasyllabic">Words (Pentasyllabic)</option>
+            <option value="words_mixed">Words (Mixed)</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="stat-box">Personal Best: <span id="bestScore" class="stat-val">--</span></div>
+    </div>
+    <div class="chart-container">
+      <canvas id="progressChart"></canvas>
+    </div>
+  </div>
+
+  <div class="controls">
+    <label>
+      Category
+      <select id="category">
+        <option value="">-- choose --</option>
+        <option value="numbers">Numbers</option>
+        <option value="words">Words</option>
+      </select>
+    </label>
+    <div id="number-options" style="display:none;">
+      <label>Range <select id="number-range"><option value="99">1–99</option><option value="999">1–999</option><option value="9999">1–9999</option></select></label>
+    </div>
+    <div id="word-options" style="display:none;">
+      <label>Words <select id="word-type"><option value="bisyllabic">bisyllabic</option><option value="trisyllabic">trisyllabic</option><option value="tetrasyllabic">tetrasyllabic</option><option value="pentasyllabic">pentasyllabic</option><option value="mixed">mixed</option></select></label>
+    </div>
+    <button id="startBtn" class="primary">Start</button>
+    <button id="resetMenu" class="small">Reset</button>
+  </div>
+  <div class="hint">Start shows 15 random items. 7-item cap logic active.</div>
+</div>
+
+<div id="game" style="display:none;">
+  <div id="playArea" aria-live="polite"></div>
+  <div class="hint" id="roundInfo"></div>
+</div>
+
+<div id="result" style="display:none;"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+  import { getDatabase, ref, onValue, push, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAdflKP3Ot18R0NsxzOnN7HRQb5dCBpijo",
+    authDomain: "meta-80275.firebaseapp.com",
+    databaseURL: "https://meta-80275-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "meta-80275",
+    storageBucket: "meta-80275.firebasestorage.app",
+    messagingSenderId: "530974365258",
+    appId: "1:530974365258:web:aab2bcb076fb3f9a0f38b3"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getDatabase(app); 
+  let currentUser = null;
+  let fullHistory = []; // Store raw history here
+
+  // --- CHART SETUP ---
+  let myChart = null;
+  const ctx = document.getElementById('progressChart').getContext('2d');
+  
+  function initChart() {
+    myChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: { 
+        responsive: true, 
+        maintainAspectRatio: false, 
+        plugins: { legend: {display:true} }, 
+        scales: { y: { beginAtZero: true, suggestedMax: 15 } } 
+      }
+    });
+  }
+
+  // Refined Logic for Filtering and High Scores
+  function renderChartWithFilter(filter) {
+    if(!myChart) initChart();
+    
+    // 1. Filter Data
+    let filtered = fullHistory.filter(item => {
+      if(filter === 'all') return true;
+      if(filter === 'numbers_all') return item.category === 'numbers';
+      if(filter === 'words_all') return item.category === 'words';
+      
+      const parts = filter.split('_');
+      // parts[0] is category, parts[1] is type
+      return item.category === parts[0] && String(item.type) === parts[1];
+    });
+
+    // 2. Sort by date
+    filtered.sort((a, b) => (a.date > b.date) ? 1 : -1);
+
+    // 3. Calculate High Score for this view
+    const best = filtered.reduce((max, curr) => Math.max(max, parseInt(curr.score)||0), 0);
+    document.getElementById('bestScore').textContent = filtered.length > 0 ? best : '--';
+
+    // 4. Prepare Datasets
+    const labels = filtered.map((_, i) => i + 1);
+    const dataPoints = filtered.map(item => item.score);
+    
+    // Color logic
+    let color = '#666';
+    if(filter.includes('numbers')) color = '#2563eb';
+    if(filter.includes('words')) color = '#dc2626';
+
+    myChart.data.labels = labels;
+    myChart.data.datasets = [{
+      label: 'Score',
+      data: dataPoints,
+      borderColor: color,
+      backgroundColor: color + '15', // Low opacity
+      tension: 0.3,
+      fill: true
+    }];
+    myChart.update();
+  }
+
+  // Handle Dropdown Change
+  document.getElementById('chartFilter').addEventListener('change', (e) => {
+    renderChartWithFilter(e.target.value);
+  });
+
+  // --- AUTH LOGIC ---
+  const authOverlay = document.getElementById('authOverlay');
+  const authMsg = document.getElementById('authMsg');
+  const btnLogin = document.getElementById('btnLogin');
+  const btnRegister = document.getElementById('btnRegister');
+
+  function getEmail(name) { return name.replace(/\s+/g, '').toLowerCase() + "@memory.game"; }
+  function updateProfile(user, name) {
+    const profileRef = ref(db, 'users/' + user.uid + '/profile');
+    set(profileRef, { name: name, lastLogin: new Date().toISOString() });
+  }
+
+  btnLogin.addEventListener('click', () => {
+    const name = document.getElementById('username').value;
+    const pass = document.getElementById('password').value;
+    if(!name || !pass) { authMsg.textContent = "Please enter name and password"; return; }
+    authMsg.textContent = "Logging in...";
+    signInWithEmailAndPassword(auth, getEmail(name), pass)
+      .then((cred) => updateProfile(cred.user, name))
+      .catch(e => authMsg.textContent = "Error: " + e.message);
+  });
+
+  btnRegister.addEventListener('click', () => {
+    const name = document.getElementById('username').value;
+    const pass = document.getElementById('password').value;
+    if(!name || !pass) { authMsg.textContent = "Enter a name and password to register"; return; }
+    authMsg.textContent = "Creating account...";
+    createUserWithEmailAndPassword(auth, getEmail(name), pass)
+      .then((cred) => updateProfile(cred.user, name))
+      .catch(e => authMsg.textContent = "Error: " + e.message);
+  });
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      currentUser = user;
+      authOverlay.style.display = 'none';
+      document.getElementById('connectionStatus').textContent = "Online";
+      document.getElementById('connectionStatus').className = "status-badge status-online";
+      
+      const historyRef = ref(db, 'users/' + user.uid + '/history');
+      onValue(historyRef, (snapshot) => {
+        const data = snapshot.val();
+        fullHistory = [];
+        if (data) {
+           for (let key in data) fullHistory.push(data[key]);
+        }
+        // Initial render with current filter
+        renderChartWithFilter(document.getElementById('chartFilter').value);
+      });
+    }
+  });
+
+  window.saveScoreToFirebase = function(score, category, specificType) {
+    if (!currentUser) return;
+    const historyRef = ref(db, 'users/' + currentUser.uid + '/history');
+    push(historyRef, { score: score, category: category, type: specificType, date: new Date().toISOString() });
+  };
+</script>
+
+<script>
+/* GAME LOGIC (UNCHANGED) */
+const bisyllabicWords = ['qualche','strada','strano','brutto','classe','freddo','fresco','fretta','fronte','frutto','grande','grosso','gruppo','pranzo','presso','presto','prezzo','pronto','sforzo','spalla','spesso','stampa','stanco','stanza','stella','stesso','trarre','tratto','triste','troppo','bravo','breve','crisi','croce','frase','grado','grave','greco','prato','prima','primo','prova','scala','scena','scopo','spesa','stare','stato','treno','centro','contro','dentro','destro','labbro','mentre','nostro','vostro','bagno','basso','bello','bocca','bosco','caldo','campo','carne','carta','certo','circa','collo','colpa','colpo','conto','corpo','corsa','corso','costa','dente','dolce','donna','fatto','fermo','ferro','festa','folla','fondo','forma','forse','forte','forza','gamba','gatto','gente','gesto','gusto','largo','latte','legge','letto','libro','lotta','lungo','madre','mamma','massa','mente','messa','metro','mezzo','molto','mondo','monte','morte','notte','nulla','padre','parte','passo','pazzo','pelle','pezzo','ponte','porre','porta','porto','posto','punta','punto','regno','resto','ricco','rosso','russo','sacro','segno','senso','senza','sogno','sonno','sopra','sotto','tanto','tardi','tempo','terzo','testa','tutto','valle','vasto','vento','verde','verso','villa','vista','volta','volto','zitto','base','bene','bere','cane','capo','caro','casa','caso','come','cosa','cura','dare','dire','dito','dopo','dove','duro','fame','fede','filo','fine','fino','giro','lago','lato','lira','loro','luce','luna','male','mano','mare','meno','mese','modo','muro','nave','nero','nome','noto','nudo','pace','pane','pena','peso','poco','pure','puro','riva','roba','sala','sede','sera','sino','sole','solo','tale','tipo','tono','vino','viso','vita','vivo','voce','zona','altro','anche','entro','oltre','ombra','alto','anno','anzi','arma','arte','atto','ecco','egli','erba','essa','esso','oggi','ogni','ora','oro','uno','uso','braccio','proprio','grazia','grazie','grigio','spazio','specie','storia','studio','scienza','sguardo','chiaro','chiave','chiesa','scuola','vecchio','bestia','calcio','dubbio','dunque','faccia','figlia','figlio','foglia','lingua','maggio','meglio','moglie','patria','peggio','sangue','voglia','medio','vario','bianco','biondo','dietro','fianco','giallo','giorno','giugno','giusto','guerra','niente','pianta','piazza','pietra','quadro','quanto','quarto','quello','questo','quindi','buono','causa','cielo','cuore','fiore','fiume','fuoco','fuori','gioco','luogo','nuovo','piano','piede','pieno','quale','quasi','vuoto','buio','occhio','acqua','ampio','aria','ieri','uomo','viaggio','gioia'];
+const trisyllabicWords = ['scherzare','scrittore','stringere','strumento','scrivere','programma','crescere','francese','prendere','principe','problema','prossimo','scappare','scendere','scoprire','scorrere','smettere','spegnere','spingere','staccare','svolgere','trattare','fratello','presente','presenza','processo','prodotto','produrre','profondo','proporre','proposta','speranza','sviluppo','credere','gridare','preciso','pregare','privato','provare','scusare','sperare','spirito','sposare','stasera','storico','stupido','trovare','creare','confronto','congresso','controllo','ricchezza','centrale','comprare','fabbrica','macchina','mostrare','pubblico','sembrare','semplice','soffrire','bellezza','campagna','compagno','comporre','concetto','condurre','contatto','contento','corrente','discorso','disporre','distanza','montagna','perfetto','rapporto','rispetto','risposta','soltanto','successo','bambina','bambino','bastare','battere','buttare','cantare','cattivo','cercare','collina','colpire','contare','coprire','correre','cortile','cultura','davvero','destino','dormire','dottore','fermare','fissare','fondare','formare','fornire','fortuna','fuggire','gettare','leggere','leggero','lettera','lontano','mancare','mandare','massimo','mattina','mattino','mercato','mettere','nascere','nemmeno','neppure','nessuno','normale','padrone','parlare','partire','partito','passare','passato','peccato','pensare','perdere','perfino','persona','piccolo','portare','rendere','restare','rompere','saltare','salvare','segnare','segreto','sentire','servire','signora','signore','sistema','sognare','soldato','sorgere','sorriso','sottile','tecnico','tendere','tentare','termine','terreno','toccare','tornare','vendere','vestire','vestito','vincere','volgere','voltare','finestra','ministro','sinistro','bisogno','capello','cavallo','davanti','dinanzi','diretto','diritto','diverso','domanda','durante','governo','moderno','momento','palazzo','potenza','ragazza','ragazzo','recente','ricerca','ricordo','ridurre','ritorno','secondo','sorella','tedesco','badare','cadere','camera','capace','capire','civile','colore','coloro','comodo','comune','cucina','denaro','difesa','dolore','domani','dovere','durare','facile','famoso','fatica','favore','felice','ferire','figura','finire','fumare','futuro','genere','girare','godere','latino','lavoro','legare','levare','libero','limite','magari','marito','medico','merito','minimo','minore','minuto','misura','morale','morire','motivo','musica','natura','nemico','nobile','notare','numero','pagare','pagina','parere','parete','parola','pesare','popolo','posare','potere','povero','rapido','recare','ridere','romano','salire','sapere','secolo','sedere','sereno','sicuro','simile','solito','subito','tacere','tavola','tavolo','temere','tenere','tirare','titolo','valere','valore','vedere','venire','vicino','visita','vivere','volare','volere','linea','serie','serio','maestro','neanche','teatro','paese','paura','poeta','reale','entrare','estremo','inglese','offrire','accanto','accordo','addosso','affatto','albergo','appunto','aspetto','attento','attorno','azzurro','effetto','esporre','imporre','infatti','insomma','intanto','interno','intorno','inverno','istante','oggetto','opporre','affare','albero','alcuno','allora','almeno','alzare','ancora','andare','angolo','antico','appena','aprire','armare','attesa','attimo','attore','eppure','errore','essere','estate','estero','infine','intero','invece','ognuno','oppure','ordine','ultimo','uscire','assai','inoltre','adesso','avanti','enorme','abito','amare','amico','amore','anima','animo','avere','epoca','esame','isola','odore','onore','opera','udire','umano','unico','unire','usare','utile','idea','straniero','principio','tranquillo','cristiano','sbagliare','scegliere','scoppiare','svegliare','provincia','bruciare','speciale','stagione','stazione','studiare','chiamare','chiedere','chiudere','spiegare','contrario','costruire','battaglia','commercio','compagnia','consiglio','continuo','fantasia','servizio','tuttavia','coscienza','cambiare','compiere','funzione','lanciare','lasciare','maggiore','mangiare','mestiere','migliore','passione','pensiero','tagliare','togliere','parecchio','comunque','coraggio','famiglia','malattia','silenzio','fiducia','memoria','notizia','polizia','baciare','maniera','milione','nazione','ragione','regione','seguire','seguito','sociale','piuttosto','ciascuno','giardino','giornale','giornata','giungere','guardare','piangere','piantare','qualcosa','qualcuno','riuscire','guardia','giocare','giovane','guidare','muovere','piacere','pianura','riunire','suonare','poesia','ufficio','indietro','attuale','insieme','orecchio','energia','esempio','inizio','azione','uguale','autore','aiuto','giustizia','qualsiasi','questione','qualunque','giudizio'];
+const tetrasyllabicWords = ['trasformare','principale','provvedere','scomparire','spettacolo','trascinare','presentare','professore','promettere','stamattina','chilometro','presidente','preferire','preparare','prevedere','procedere','proposito','provocare','stabilire','comprendere','costringere','distruggere','sorprendere','concludere','descrivere','pubblicare','soprattutto','confessare','consentire','conservare','convincere','diffondere','nascondere','permettere','raccontare','riprendere','rispondere','certamente','differenza','sentimento','camminare','cattolico','cittadino','concedere','contadino','contenere','difficile','discutere','mantenere','personale','possedere','possibile','ritrovare','settimana','signorina','sorridere','sostenere','succedere','dimostrare','repubblica','conoscenza','finalmente','bisognare','carattere','celebrare','conoscere','difendere','dipendere','direttore','diventare','divertire','domandare','resistere','ricordare','rimettere','riportare','risolvere','risultare','risultato','ritornare','rivolgere','movimento','sicurezza','veramente','capitare','decidere','dedicare','dirigere','divenire','dividere','domenica','fenomeno','figurare','generale','lavorare','liberare','limitare','medesimo','meritare','militare','naturale','notevole','numeroso','pericolo','politica','politico','ricevere','riferire','rimanere','ripetere','ritenere','rivedere','rivelare','salutare','superare','materia','periodo','rientrare','riempire','affrontare','improvviso','escludere','esprimere','incontrare','industria','abbastanza','accorgersi','eccellenza','importante','importanza','accendere','accettare','affermare','ammazzare','ammettere','arrestare','ascoltare','aspettare','assistere','attaccare','attendere','avvertire','estendere','importare','insegnare','insistere','intendere','occorrere','offendere','osservare','argomento','interesse','accadere','apparire','arrivare','articolo','assoluto','assumere','avvenire','avvocato','eccetera','immagine','imparare','impedire','indicare','invitare','istituto','ordinare','ospedale','ottenere','uccidere','ambiente','elettrico','avanzare','esercito','esistere','elemento','abitare','animale','elevare','evitare','inutile','origine','oramai','produzione','costruzione','ringraziare','commissione','distinguere','raccogliere','personaggio','matrimonio','sacrificio','segretario','territorio','conseguenza','condizione','continuare','raggiungere','dichiarare','richiedere','necessario','cominciare','pomeriggio','decisione','direzione','posizione','relazione','religioso','soluzione','riguardare','nazionale','rifiutare','giovanotto','giudicare','espressione','impressione','accogliere','annunciare','appoggiare','attenzione','intenzione','occasione','ufficiale','aggiungere','iniziare','italiano','opinione','operaio','aumentare','europeo','aiutare','situazione'];
+const pentasyllabicWords = ['probabilmente','preoccupare','rappresentare','completamente','considerare','partecipare','particolare','significare','costituire','determinare','dimenticare','naturalmente','riconoscere','desiderare','pericoloso','desiderio','superiore','attraversare','industriale','accompagnare','abbandonare','allontanare','appartenere','impossibile','interessante','addirittura','interessare','organizzare','assicurare','avvicinare','immaginare','innamorare','esperienza','americano','economico','straordinario','disposizione','popolazione','rivoluzione','atteggiamento','operazione','automobile'];
+const mixedWords = [...bisyllabicWords, ...trisyllabicWords, ...tetrasyllabicWords, ...pentasyllabicWords];
+
+const categoryEl = document.getElementById('category');
+const numberOpts = document.getElementById('number-options');
+const wordOpts = document.getElementById('word-options');
+const startBtn = document.getElementById('startBtn');
+const resetMenu = document.getElementById('resetMenu');
+const playArea = document.getElementById('playArea');
+const menu = document.getElementById('menu');
+const gameDiv = document.getElementById('game');
+const resultDiv = document.getElementById('result');
+const roundInfo = document.getElementById('roundInfo');
+
+let selectedItems = []; let usedSet = new Set(); let currentCount = 3; let lastPicked = null; let isActive = false; 
+const MAX_DISPLAY = 7; const USED_REQUIRED_AT_MAX = 5; let currentCategory = ''; let currentType = '';
+
+categoryEl.addEventListener('change', () => {
+  const v = categoryEl.value;
+  numberOpts.style.display = v === 'numbers' ? 'inline-block' : 'none';
+  wordOpts.style.display = v === 'words' ? 'inline-block' : 'none';
+});
+resetMenu.addEventListener('click', () => { categoryEl.value = ''; numberOpts.style.display = 'none'; wordOpts.style.display = 'none'; });
+
+startBtn.addEventListener('click', () => {
+  const cat = categoryEl.value;
+  if (!cat) { alert('Choose Numbers or Words first.'); return; }
+  currentCategory = cat;
+  currentType = (cat === 'numbers') ? (document.getElementById('number-range').value || '99') : (document.getElementById('word-type').value || 'mixed');
+  selectedItems = []; usedSet.clear(); currentCount = 3; lastPicked = null; isActive = true;
+
+  if (cat === 'numbers') {
+    const max = parseInt(currentType, 10);
+    const s = new Set();
+    while (s.size < 15) s.add(Math.floor(Math.random() * max) + 1);
+    selectedItems = Array.from(s);
+  } else {
+    let pool = [];
+    if (currentType === 'bisyllabic') pool = bisyllabicWords;
+    else if (currentType === 'trisyllabic') pool = trisyllabicWords;
+    else if (currentType === 'tetrasyllabic') pool = tetrasyllabicWords;
+    else if (currentType === 'pentasyllabic') pool = pentasyllabicWords;
+    else pool = mixedWords;
+    const picks = new Set();
+    while (picks.size < Math.min(15, pool.length)) picks.add(pool[Math.floor(Math.random() * pool.length)]);
+    selectedItems = Array.from(picks);
+  }
+  menu.style.display = 'none'; resultDiv.style.display = 'none'; gameDiv.style.display = 'block';
+  playRound(); 
+});
+
+function playRound() {
+  currentCount = Math.min(currentCount, selectedItems.length, MAX_DISPLAY);
+  roundInfo.textContent = `Round: showing ${currentCount} item(s). Correct so far: ${usedSet.size}/${selectedItems.length}`;
+  const itemsToShow = [];
+  const unpicked = selectedItems.filter(it => !usedSet.has(it));
+  const picked = selectedItems.filter(it => usedSet.has(it));
+  function shuffle(a){ for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } }
+  shuffle(unpicked); shuffle(picked);
+
+  if (currentCount < MAX_DISPLAY) {
+    if (lastPicked !== null && itemsToShow.length < currentCount) itemsToShow.push(lastPicked);
+    for (let x of unpicked) { if (itemsToShow.length >= currentCount) break; if (!itemsToShow.includes(x)) itemsToShow.push(x); }
+    for (let x of picked) { if (itemsToShow.length >= currentCount) break; if (!itemsToShow.includes(x)) itemsToShow.push(x); }
+    for (let x of selectedItems) { if (itemsToShow.length >= currentCount) break; if (!itemsToShow.includes(x)) itemsToShow.push(x); }
+  } else {
+    const usedNeeded = Math.min(USED_REQUIRED_AT_MAX, picked.length);
+    if (lastPicked !== null && picked.includes(lastPicked) && !itemsToShow.includes(lastPicked)) itemsToShow.push(lastPicked);
+    for (let x of picked) { if (itemsToShow.length >= usedNeeded) break; if (!itemsToShow.includes(x)) itemsToShow.push(x); }
+    for (let x of unpicked) { if (itemsToShow.length >= currentCount) break; if (!itemsToShow.includes(x)) itemsToShow.push(x); }
+    for (let x of selectedItems) { if (itemsToShow.length >= currentCount) break; if (!itemsToShow.includes(x)) itemsToShow.push(x); }
+  }
+  shuffle(itemsToShow); renderScatteredItems(itemsToShow);
+}
+
+function renderScatteredItems(items) {
+  playArea.innerHTML = '';
+  const placedRects = [];
+  function rectsOverlap(a,b){ return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom); }
+  for (let value of items) {
+    const el = document.createElement('div');
+    el.className = 'item'; el.textContent = value; el.setAttribute('role','button'); el.tabIndex = 0;
+    el.style.visibility = 'hidden'; el.style.left = '0px'; el.style.top = '0px';
+    playArea.appendChild(el);
+    const elW = el.offsetWidth; const elH = el.offsetHeight;
+    const areaW = playArea.clientWidth; const areaH = playArea.clientHeight;
+    let placed = false;
+    for (let attempt = 0; attempt < 30 && !placed; attempt++) {
+      const left = Math.round(8 + Math.random() * Math.max(0, areaW - elW - 16));
+      const top = Math.round(8 + Math.random() * Math.max(0, areaH - elH - 16));
+      const rect = { left, top, right: left + elW, bottom: top + elH };
+      let collision = false;
+      for (let r of placedRects) { if (rectsOverlap(r, rect)) { collision = true; break; } }
+      if (!collision) {
+        el.style.left = left + 'px'; el.style.top = top + 'px'; el.style.visibility = 'visible';
+        placedRects.push(rect); placed = true;
+      }
+    }
+    if (!placed) {
+      el.style.left = '10px'; el.style.top = '10px'; el.style.visibility = 'visible';
+    }
+    el.addEventListener('click', () => { if (!isActive) return; onItemClicked(value); });
+  }
+}
+
+function onItemClicked(item) {
+  if (usedSet.has(item) || (lastPicked !== null && item === lastPicked)) { isActive = false; showResult(false, usedSet.size); return; }
+  usedSet.add(item); lastPicked = item;
+  if (usedSet.size >= selectedItems.length) { isActive = false; showResult(true, usedSet.size); return; }
+  if (currentCount < MAX_DISPLAY) currentCount = currentCount + 1;
+  playRound();
+}
+
+function showResult(won, score) {
+  if (window.saveScoreToFirebase) window.saveScoreToFirebase(score, currentCategory, currentType);
+  gameDiv.style.display = 'none'; resultDiv.style.display = 'block'; resultDiv.innerHTML = '';
+  const box = document.createElement('div');
+  box.style.maxWidth = '720px'; box.style.background = '#fff'; box.style.padding = '20px'; box.style.borderRadius = '10px'; box.style.boxShadow = '0 6px 24px rgba(0,0,0,0.08)';
+  const title = document.createElement('h2'); title.textContent = won ? 'You won! 🎉' : 'Game over'; box.appendChild(title);
+  const p = document.createElement('p'); p.textContent = won ? `Fantastic — you picked all ${score} item(s).` : `You made a mistake. Correct items: ${score}.`; box.appendChild(p);
+  const back = document.createElement('button'); back.className = 'primary'; back.textContent = 'Back to menu';
+  back.addEventListener('click', () => { selectedItems=[]; usedSet.clear(); currentCount=3; lastPicked=null; isActive=false; resultDiv.style.display='none'; menu.style.display='block'; gameDiv.style.display='none'; });
+  box.appendChild(back);
+  resultDiv.appendChild(box);
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { selectedItems=[]; usedSet.clear(); currentCount=3; lastPicked=null; isActive=false; gameDiv.style.display='none'; resultDiv.style.display='none'; menu.style.display='block'; } });
+</script>
+</body>
+</html>
